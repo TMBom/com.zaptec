@@ -37,11 +37,6 @@
         "no": "Energibruk ladeøkt"
       }
     },
-    "meter_power": {
-      "title": {        "en": "Total energy",
-        "no": "Total energi"
-      }
-    },
     "meter_power_total_this_year": {
       "title": {        "en": "Energy this year",
         "no": "Energiforbruk i år"
