@@ -2369,6 +2369,7 @@
       },
       "capabilities": [
         "meter_power.current_session",
+        "calculated_meter_value",
         "meter_power",
         "meter_power.last_session",
         "measure_power",
@@ -2469,8 +2470,7 @@
           "title": {
             "en": "Signed meter value",
             "no": "Målerstand"
-          },
-          "uiComponent": "none"
+          }
         },
         "measure_signal_strength": {
           "title": {
@@ -3200,6 +3200,27 @@
         "en": "Cable unlocked from charger",
         "no": "Kabel ikke låst til lader"
       }
+    },
+    "calculated_meter_value": {
+      "title": {
+        "en": "Calculated meter value",
+        "no": "Beregnet målerverdi"
+      },
+      "type": "number",
+      "desc": {
+        "en": "Live calculated total energy consumption combining signed meter value and current session",
+        "no": "Beregnet total energiforbruk basert på målerverdi og aktiv ladeøkt"
+      },
+      "units": {
+        "en": "kWh"
+      },
+      "decimals": 3,
+      "setable": false,
+      "getable": true,
+      "insights": true,
+      "uiComponent": "sensor",
+      "chartType": "stepLine",
+      "icon": "../assets/icon.svg"
     },
     "charge_mode": {
       "type": "enum",

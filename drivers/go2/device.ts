@@ -17,6 +17,9 @@ export class Go2Charger extends Homey.Device {
   private cronTasks: cron.ScheduledTask[] = [];
   private api?: ZaptecApi;
   private tokenRenewalTimeout: NodeJS.Timeout | undefined;
+  private calculatedMeterValue: number = 0;
+  private lastObservedSessionEnergy: number = 0;
+  private lastSignedMeterValue: number = 0;
 
   /**
    * onInit is called when the device is initialized.
@@ -34,7 +37,7 @@ export class Go2Charger extends Homey.Device {
 
     await this.migrateEnergy();
     await this.migrateCapabilities();
-    
+
     this.registerCapabilityListeners();
 
     this.cronTasks.push(
@@ -52,6 +55,9 @@ export class Go2Charger extends Homey.Device {
     // Do initial slow poll at start, we don't know how long ago we read it out.
     this.pollSlowValues();
 
+    // Initialize calculated meter value tracking
+    this.initializeCalculatedMeterValue();
+
     this.log('Go2Charger has been initialized');
   }
 
@@ -63,12 +69,17 @@ export class Go2Charger extends Homey.Device {
     private async migrateCapabilities() {
       //get lastInstalledVersion from settings
       const lastInstalledVersion = this.getSetting('lastInstalledVersion') || '0.0.0';
-          
+
       // Log version information for debugging
       this.logToDebug(`Migration: Current version is ${this.homey.app.manifest.version}, previously installed version was ${lastInstalledVersion}`);
-      
+
       if (lastInstalledVersion <= '1.8.1' && !this.hasCapability('charging_mode')) {
         await this.addCapability('charging_mode');
+      }
+
+      // Add calculated meter value capability for live energy reporting
+      if (!this.hasCapability('calculated_meter_value')) {
+        await this.addCapability('calculated_meter_value');
       }
     }
   /**
@@ -76,14 +87,36 @@ export class Go2Charger extends Homey.Device {
    */
   private async migrateEnergy() {
     const energyConfig = this.getEnergy();
-      if (energyConfig?.cumulative !== true || energyConfig?.evCharger !== true || energyConfig?.meterPowerImportedCapability !== "meter_power.signed_meter_value") {
+      if (energyConfig?.cumulative !== true || energyConfig?.evCharger !== true || energyConfig?.meterPowerImportedCapability !== "calculated_meter_value") {
         this.setEnergy({
           evCharger: true,
-          meterPowerImportedCapability: "meter_power.signed_meter_value"
+          meterPowerImportedCapability: "calculated_meter_value"
         }).catch((e) => {
           this.logToDebug(`Failed to migrate energy: ${e}`);
         });
     }
+  }
+
+  /**
+   * Initialize the calculated meter value tracking.
+   * Sets up the baseline from signed meter value if available.
+   */
+  private initializeCalculatedMeterValue() {
+    // Initialize calculated meter value from existing capability or 0
+    const existingSignedValue = this.getCapabilityValue('meter_power.signed_meter_value');
+    const existingCalculatedValue = this.getCapabilityValue('calculated_meter_value');
+
+    if (existingCalculatedValue !== null && existingCalculatedValue !== undefined) {
+      this.calculatedMeterValue = existingCalculatedValue;
+    } else if (existingSignedValue !== null && existingSignedValue !== undefined) {
+      this.calculatedMeterValue = existingSignedValue;
+      this.setCapabilityValue('calculated_meter_value', this.calculatedMeterValue).catch(e =>
+        this.logToDebug(`Failed to initialize calculated_meter_value: ${e}`)
+      );
+    }
+
+    this.lastSignedMeterValue = existingSignedValue || 0;
+    this.lastObservedSessionEnergy = this.getCapabilityValue('meter_power.current_session') || 0;
   }
 
 
@@ -154,19 +187,19 @@ export class Go2Charger extends Homey.Device {
         await this.removeCapability('measure_current.phase3');
       }
     }
-    
+
     // Handle changes to authentication requirement
     if (changes.changedKeys.some((k) => k === 'requireAuthentication')) {
       try {
         if (!this.hasCapability('available_installation_current')) {
           throw new Error(this.homey.__('errors.missing_installation_access'));
         }
-        
+
         const requireAuthValue = changes.newSettings.requireAuthentication;
-        const requireAuth = typeof requireAuthValue === 'string' 
-          ? requireAuthValue === 'true' 
+        const requireAuth = typeof requireAuthValue === 'string'
+          ? requireAuthValue === 'true'
           : Boolean(requireAuthValue);
-        
+
         await this.setInstallationAuthenticationRequirement(requireAuth);
         this.logToDebug(`Updated authentication requirement to ${requireAuth} via settings`);
       } catch (e) {
@@ -237,7 +270,7 @@ export class Go2Charger extends Homey.Device {
   protected pollValues() {
     try {
       if (this.api === undefined) return;
-     
+
       // Poll charger info
       this.api
         .getCharger(this.getData().id)
@@ -247,7 +280,7 @@ export class Go2Charger extends Homey.Device {
           });
         })
         .catch((e) => {
-          this.logToDebug(`Failed to poll charger info: ${e}`);        
+          this.logToDebug(`Failed to poll charger info: ${e}`);
           this.setUnavailable(
             this.homey.__('errors.authentication_failed')
           );
@@ -308,7 +341,7 @@ export class Go2Charger extends Homey.Device {
       })
       .catch((e) => {
         this.logToDebug(`Failed to poll installation: ${e}`);
-        if (this.hasCapability('available_installation_current')) 
+        if (this.hasCapability('available_installation_current'))
           this.removeCapability('available_installation_current');
         if (this.hasCapability('charging_mode'))
           this.removeCapability('charging_mode');
@@ -418,10 +451,21 @@ export class Go2Charger extends Homey.Device {
         break;
 
       case ApolloDeviceObservation.TotalChargePowerSession:
+        const currentSessionEnergy = Number(state.ValueAsString);
         await this.setCapabilityValue(
           'meter_power.current_session',
-          Number(state.ValueAsString),
+          currentSessionEnergy,
         );
+
+        // Update calculated meter value with the energy delta from this session
+        // Only apply positive deltas (energy should only increase during a session)
+        const sessionDelta = currentSessionEnergy - this.lastObservedSessionEnergy;
+        if (sessionDelta > 0) {
+          this.calculatedMeterValue += sessionDelta;
+          await this.setCapabilityValue('calculated_meter_value', this.calculatedMeterValue);
+          this.logToDebug(`Updated calculated meter: +${sessionDelta.toFixed(3)} kWh (session: ${currentSessionEnergy.toFixed(3)} kWh, total: ${this.calculatedMeterValue.toFixed(3)} kWh)`);
+        }
+        this.lastObservedSessionEnergy = currentSessionEnergy;
         break;
 
       case ApolloDeviceObservation.Humidity:
@@ -487,9 +531,9 @@ export class Go2Charger extends Homey.Device {
     if (this.api === undefined || !this.hasCapability('available_installation_current')) return;
     const info = await this.api
       .getInstallation(this.getData().installationId)
-      .catch((e) => {     
+      .catch((e) => {
         if (e instanceof ApiError && e.message.indexOf('Unknown object') >= 0 && this.hasCapability('available_installation_current'))
-          this.removeCapability('available_installation_current'); 
+          this.removeCapability('available_installation_current');
         this.logToDebug(
           `Failed to get installation info when updating available current: ${e}`,
         );
@@ -610,6 +654,11 @@ export class Go2Charger extends Homey.Device {
       await this.homey.flow
         .getDeviceTriggerCard('go2_car_disconnects')
         .trigger(this, tokens);
+
+      // Reset session energy tracking when car disconnects
+      // The calculated meter value will be corrected by the next signed meter update
+      this.lastObservedSessionEnergy = 0;
+      this.logToDebug(`Car disconnected - reset session energy tracking`);
     }
   }
 
@@ -659,7 +708,7 @@ export class Go2Charger extends Homey.Device {
           ST?: string;
         }[];
       } = JSON.parse(jsonStr);
-      
+
       const rv = ocmf.RD?.[0]?.RV;
       if (rv !== undefined) {
         const num = Number(rv);
@@ -668,6 +717,20 @@ export class Go2Charger extends Homey.Device {
           signedMeterValue: formatted,
         }).then(() => {
           this.setCapabilityValue('meter_power.signed_meter_value', num);
+
+          // Correct calculated meter value when receiving new signed value with no car connected
+          // This corrects any accumulated rounding errors or drift
+          const isCarConnected = this.getCapabilityValue('alarm_generic.car_connected');
+          const isNewSignedValue = num !== this.lastSignedMeterValue;
+
+          if (!isCarConnected && isNewSignedValue) {
+            this.logToDebug(`Correcting calculated meter value from ${this.calculatedMeterValue.toFixed(3)} to signed value ${num.toFixed(3)} (no car connected, new signed value received)`);
+            this.calculatedMeterValue = num;
+            this.setCapabilityValue('calculated_meter_value', num).catch(e =>
+              this.logToDebug(`Failed to update calculated_meter_value: ${e}`)
+            );
+          }
+          this.lastSignedMeterValue = num;
         })
         .catch((e) => {
           this.logToDebug(`Failed to get OCMF-signed value: ${e}`);
@@ -752,7 +815,7 @@ export class Go2Charger extends Homey.Device {
 
   /**
    * Sets whether the installation requires authentication for charging
-   * 
+   *
    * @param {boolean} requireAuthentication - true if authentication is required, false otherwise
    * @returns {Promise<boolean>} - true if the operation succeeded
    */
@@ -772,7 +835,7 @@ export class Go2Charger extends Homey.Device {
 
   /**
    * Sends a command to reboot the charger
-   * 
+   *
    * @returns {Promise<boolean>} - true if the operation succeeded
    */
   public async rebootCharger() {
@@ -785,10 +848,10 @@ export class Go2Charger extends Homey.Device {
         throw new Error(`Failed to reboot charger: ${e}`);
       });
   }
-  
+
     /**
    * Sets the charging mode for the installation
-   * 
+   *
    * @param {Feature} chargingMode - the charging mode to set
    * @returns {Promise<boolean>} - true if the operation succeeded
    */

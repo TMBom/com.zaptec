@@ -1,0 +1,21 @@
+{
+  "title": {
+    "en": "Calculated meter value",
+    "no": "Beregnet målerverdi"
+  },
+  "type": "number",
+  "desc": {
+    "en": "Live calculated total energy consumption combining signed meter value and current session",
+    "no": "Beregnet total energiforbruk basert på målerverdi og aktiv ladeøkt"
+  },
+  "units": {
+    "en": "kWh"
+  },
+  "decimals": 3,
+  "setable": false,
+  "getable": true,
+  "insights": true,
+  "uiComponent": "sensor",
+  "chartType": "stepLine",
+  "icon": "../assets/icon.svg"
+}

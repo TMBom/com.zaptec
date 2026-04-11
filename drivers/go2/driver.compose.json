@@ -8,6 +8,7 @@
   "class": "evcharger",
   "capabilities": [
     "meter_power.current_session",
+    "calculated_meter_value",
     "meter_power",
     "meter_power.last_session",
     "measure_power",
@@ -108,8 +109,7 @@
       "title": {
         "en": "Signed meter value",
         "no": "Målerstand"
-      },
-      "uiComponent": "none"
+      }
     },
     "measure_signal_strength": {
       "title": {
