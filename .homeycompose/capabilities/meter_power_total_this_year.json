@@ -1,0 +1,16 @@
+{
+  "title": {
+    "en": "Energy this year",
+    "no": "Energiforbruk i år"
+  },
+  "type": "number",
+  "units": {
+    "en": "kWh"
+  },
+  "decimals": 2,
+  "setable": false,
+  "getable": true,
+  "insights": true,
+  "uiComponent": "sensor",
+  "chartType": "stepLine"
+}

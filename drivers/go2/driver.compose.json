@@ -8,8 +8,8 @@
   "class": "evcharger",
   "capabilities": [
     "meter_power.current_session",
-    "calculated_meter_value",
     "meter_power",
+    "meter_power_total_this_year",
     "meter_power.last_session",
     "measure_power",
     "charging_button",
@@ -38,8 +38,12 @@
       }
     },
     "meter_power": {
-      "title": {
-        "en": "Energy this year",
+      "title": {        "en": "Total energy",
+        "no": "Total energi"
+      }
+    },
+    "meter_power_total_this_year": {
+      "title": {        "en": "Energy this year",
         "no": "Energiforbruk i år"
       }
     },

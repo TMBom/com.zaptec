@@ -2369,8 +2369,8 @@
       },
       "capabilities": [
         "meter_power.current_session",
-        "calculated_meter_value",
         "meter_power",
+        "meter_power_total_this_year",
         "meter_power.last_session",
         "measure_power",
         "charging_button",
@@ -2399,6 +2399,12 @@
           }
         },
         "meter_power": {
+          "title": {
+            "en": "Total energy",
+            "no": "Total energi"
+          }
+        },
+        "meter_power_total_this_year": {
           "title": {
             "en": "Energy this year",
             "no": "Energiforbruk i år"
@@ -3201,27 +3207,6 @@
         "no": "Kabel ikke låst til lader"
       }
     },
-    "calculated_meter_value": {
-      "title": {
-        "en": "Calculated meter value",
-        "no": "Beregnet målerverdi"
-      },
-      "type": "number",
-      "desc": {
-        "en": "Live calculated total energy consumption combining signed meter value and current session",
-        "no": "Beregnet total energiforbruk basert på målerverdi og aktiv ladeøkt"
-      },
-      "units": {
-        "en": "kWh"
-      },
-      "decimals": 3,
-      "setable": false,
-      "getable": true,
-      "insights": true,
-      "uiComponent": "sensor",
-      "chartType": "stepLine",
-      "icon": "../assets/icon.svg"
-    },
     "charge_mode": {
       "type": "enum",
       "title": {
@@ -3332,6 +3317,22 @@
       "insights": false,
       "uiComponent": "sensor",
       "icon": "/assets/current_limit.svg"
+    },
+    "meter_power_total_this_year": {
+      "title": {
+        "en": "Energy this year",
+        "no": "Energiforbruk i år"
+      },
+      "type": "number",
+      "units": {
+        "en": "kWh"
+      },
+      "decimals": 2,
+      "setable": false,
+      "getable": true,
+      "insights": true,
+      "uiComponent": "sensor",
+      "chartType": "stepLine"
     }
   }
 }

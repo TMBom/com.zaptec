@@ -17,7 +17,7 @@ export class Go2Charger extends Homey.Device {
   private cronTasks: cron.ScheduledTask[] = [];
   private api?: ZaptecApi;
   private tokenRenewalTimeout: NodeJS.Timeout | undefined;
-  private calculatedMeterValue: number = 0;
+  private totalMeterValue: number = 0;
   private lastObservedSessionEnergy: number = 0;
   private lastSignedMeterValue: number = 0;
 
@@ -56,7 +56,7 @@ export class Go2Charger extends Homey.Device {
     this.pollSlowValues();
 
     // Initialize calculated meter value tracking
-    this.initializeCalculatedMeterValue();
+    this.initializeTotalMeterValue();
 
     this.log('Go2Charger has been initialized');
   }
@@ -77,9 +77,9 @@ export class Go2Charger extends Homey.Device {
         await this.addCapability('charging_mode');
       }
 
-      // Add calculated meter value capability for live energy reporting
-      if (!this.hasCapability('calculated_meter_value')) {
-        await this.addCapability('calculated_meter_value');
+      // Add total energy this year capability
+      if (!this.hasCapability('meter_power_total_this_year')) {
+        await this.addCapability('meter_power_total_this_year');
       }
     }
   /**
@@ -87,10 +87,10 @@ export class Go2Charger extends Homey.Device {
    */
   private async migrateEnergy() {
     const energyConfig = this.getEnergy();
-      if (energyConfig?.cumulative !== true || energyConfig?.evCharger !== true || energyConfig?.meterPowerImportedCapability !== "calculated_meter_value") {
+      if (energyConfig?.cumulative !== true || energyConfig?.evCharger !== true || energyConfig?.meterPowerImportedCapability !== "meter_power") {
         this.setEnergy({
           evCharger: true,
-          meterPowerImportedCapability: "calculated_meter_value"
+          meterPowerImportedCapability: "meter_power"
         }).catch((e) => {
           this.logToDebug(`Failed to migrate energy: ${e}`);
         });
@@ -98,20 +98,20 @@ export class Go2Charger extends Homey.Device {
   }
 
   /**
-   * Initialize the calculated meter value tracking.
+   * Initialize the total meter value tracking.
    * Sets up the baseline from signed meter value if available.
    */
-  private initializeCalculatedMeterValue() {
-    // Initialize calculated meter value from existing capability or 0
+  private initializeTotalMeterValue() {
+    // Initialize total meter value from existing capability or 0
     const existingSignedValue = this.getCapabilityValue('meter_power.signed_meter_value');
-    const existingCalculatedValue = this.getCapabilityValue('calculated_meter_value');
+    const existingTotalValue = this.getCapabilityValue('meter_power');
 
-    if (existingCalculatedValue !== null && existingCalculatedValue !== undefined) {
-      this.calculatedMeterValue = existingCalculatedValue;
+    if (existingTotalValue !== null && existingTotalValue !== undefined) {
+      this.totalMeterValue = existingTotalValue;
     } else if (existingSignedValue !== null && existingSignedValue !== undefined) {
-      this.calculatedMeterValue = existingSignedValue;
-      this.setCapabilityValue('calculated_meter_value', this.calculatedMeterValue).catch(e =>
-        this.logToDebug(`Failed to initialize calculated_meter_value: ${e}`)
+      this.totalMeterValue = existingSignedValue;
+      this.setCapabilityValue('meter_power', this.totalMeterValue).catch(e =>
+        this.logToDebug(`Failed to initialize meter_power: ${e}`)
       );
     }
 
@@ -357,7 +357,7 @@ export class Go2Charger extends Homey.Device {
       .then((charges) => {
         const yearlyEnergy =
           charges?.reduce((sum, charge) => sum + charge.Energy, 0) || 0;
-        return this.setCapabilityValue('meter_power', yearlyEnergy);
+        return this.setCapabilityValue('meter_power_total_this_year', yearlyEnergy);
       })
       .then(() => {
         this.logToDebug(`Got yearly power history`);
@@ -457,22 +457,15 @@ export class Go2Charger extends Homey.Device {
           currentSessionEnergy,
         );
 
-        // Update calculated meter value with the energy delta from this session
+        // Update total meter value with the energy delta from this session
         // Only apply positive deltas (energy should only increase during a session)
         const sessionDelta = currentSessionEnergy - this.lastObservedSessionEnergy;
         if (sessionDelta > 0) {
-          this.calculatedMeterValue += sessionDelta;
-          await this.setCapabilityValue('calculated_meter_value', this.calculatedMeterValue);
-          this.logToDebug(`Updated calculated meter: +${sessionDelta.toFixed(3)} kWh (session: ${currentSessionEnergy.toFixed(3)} kWh, total: ${this.calculatedMeterValue.toFixed(3)} kWh)`);
+          this.totalMeterValue += sessionDelta;
+          await this.setCapabilityValue('meter_power', this.totalMeterValue);
+          this.logToDebug(`Updated total meter: +${sessionDelta.toFixed(3)} kWh (session: ${currentSessionEnergy.toFixed(3)} kWh, total: ${this.totalMeterValue.toFixed(3)} kWh)`);
         }
         this.lastObservedSessionEnergy = currentSessionEnergy;
-        break;
-
-      case ApolloDeviceObservation.Humidity:
-        await this.setCapabilityValue(
-          'measure_humidity',
-          Number(state.ValueAsString),
-        );
         break;
 
       case ApolloDeviceObservation.TemperatureInternal5:
@@ -718,16 +711,16 @@ export class Go2Charger extends Homey.Device {
         }).then(() => {
           this.setCapabilityValue('meter_power.signed_meter_value', num);
 
-          // Correct calculated meter value when receiving new signed value with no car connected
+          // Correct total meter value when receiving new signed value with no car connected
           // This corrects any accumulated rounding errors or drift
           const isCarConnected = this.getCapabilityValue('alarm_generic.car_connected');
           const isNewSignedValue = num !== this.lastSignedMeterValue;
 
           if (!isCarConnected && isNewSignedValue) {
-            this.logToDebug(`Correcting calculated meter value from ${this.calculatedMeterValue.toFixed(3)} to signed value ${num.toFixed(3)} (no car connected, new signed value received)`);
-            this.calculatedMeterValue = num;
-            this.setCapabilityValue('calculated_meter_value', num).catch(e =>
-              this.logToDebug(`Failed to update calculated_meter_value: ${e}`)
+            this.logToDebug(`Correcting total meter value from ${this.totalMeterValue.toFixed(3)} to signed value ${num.toFixed(3)} (no car connected, new signed value received)`);
+            this.totalMeterValue = num;
+            this.setCapabilityValue('meter_power', num).catch(e =>
+              this.logToDebug(`Failed to update meter_power: ${e}`)
             );
           }
           this.lastSignedMeterValue = num;
