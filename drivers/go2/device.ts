@@ -711,13 +711,12 @@ export class Go2Charger extends Homey.Device {
         }).then(() => {
           this.setCapabilityValue('meter_power.signed_meter_value', num);
 
-          // Correct total meter value when receiving new signed value with no car connected
+          // Correct total meter value when receiving signed value with no car connected
           // This corrects any accumulated rounding errors or drift
           const isCarConnected = this.getCapabilityValue('alarm_generic.car_connected');
-          const isNewSignedValue = num !== this.lastSignedMeterValue;
 
-          if (!isCarConnected && isNewSignedValue) {
-            this.logToDebug(`Correcting total meter value from ${this.totalMeterValue.toFixed(3)} to signed value ${num.toFixed(3)} (no car connected, new signed value received)`);
+          if (!isCarConnected && this.totalMeterValue !== num) {
+            this.logToDebug(`Correcting total meter value from ${this.totalMeterValue.toFixed(3)} to signed value ${num.toFixed(3)} (no car connected, signed value received)`);
             this.totalMeterValue = num;
             this.setCapabilityValue('meter_power', num).catch(e =>
               this.logToDebug(`Failed to update meter_power: ${e}`)
