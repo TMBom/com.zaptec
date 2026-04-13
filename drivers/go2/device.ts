@@ -17,9 +17,6 @@ export class Go2Charger extends Homey.Device {
   private cronTasks: cron.ScheduledTask[] = [];
   private api?: ZaptecApi;
   private tokenRenewalTimeout: NodeJS.Timeout | undefined;
-  private totalMeterValue: number = 0;
-  private lastObservedSessionEnergy: number = 0;
-  private lastSignedMeterValue: number = 0;
 
   /**
    * onInit is called when the device is initialized.
@@ -98,25 +95,20 @@ export class Go2Charger extends Homey.Device {
   }
 
   /**
-   * Initialize the total meter value tracking.
+   * Initialize meter value tracking.
    * Sets up the baseline from signed meter value if available.
    */
   private initializeTotalMeterValue() {
-    // Initialize total meter value from existing capability or 0
+    // Initialize meter_power from signed meter value if not already set
     const existingSignedValue = this.getCapabilityValue('meter_power.signed_meter_value');
     const existingTotalValue = this.getCapabilityValue('meter_power');
 
-    if (existingTotalValue !== null && existingTotalValue !== undefined) {
-      this.totalMeterValue = existingTotalValue;
-    } else if (existingSignedValue !== null && existingSignedValue !== undefined) {
-      this.totalMeterValue = existingSignedValue;
-      this.setCapabilityValue('meter_power', this.totalMeterValue).catch(e =>
+    if ((existingTotalValue === null || existingTotalValue === undefined) &&
+        existingSignedValue !== null && existingSignedValue !== undefined) {
+      this.setCapabilityValue('meter_power', existingSignedValue).catch(e =>
         this.logToDebug(`Failed to initialize meter_power: ${e}`)
       );
     }
-
-    this.lastSignedMeterValue = existingSignedValue || 0;
-    this.lastObservedSessionEnergy = this.getCapabilityValue('meter_power.current_session') || 0;
   }
 
 
@@ -452,20 +444,22 @@ export class Go2Charger extends Homey.Device {
 
       case ApolloDeviceObservation.TotalChargePowerSession:
         const currentSessionEnergy = Number(state.ValueAsString);
+
+        // Update total meter value with the energy delta from this session
+        // Only apply positive deltas (energy should only increase during a session)
+        const previousSessionEnergy = this.getCapabilityValue('meter_power.current_session') || 0;
+        const sessionDelta = currentSessionEnergy - previousSessionEnergy;
+        if (sessionDelta > 0) {
+          const currentMeterPower = this.getCapabilityValue('meter_power') || 0;
+          const newMeterPower = currentMeterPower + sessionDelta;
+          await this.setCapabilityValue('meter_power', newMeterPower);
+          this.logToDebug(`Updated total meter: +${sessionDelta.toFixed(3)} kWh (session: ${currentSessionEnergy.toFixed(3)} kWh, total: ${newMeterPower.toFixed(3)} kWh)`);
+        }
+
         await this.setCapabilityValue(
           'meter_power.current_session',
           currentSessionEnergy,
         );
-
-        // Update total meter value with the energy delta from this session
-        // Only apply positive deltas (energy should only increase during a session)
-        const sessionDelta = currentSessionEnergy - this.lastObservedSessionEnergy;
-        if (sessionDelta > 0) {
-          this.totalMeterValue += sessionDelta;
-          await this.setCapabilityValue('meter_power', this.totalMeterValue);
-          this.logToDebug(`Updated total meter: +${sessionDelta.toFixed(3)} kWh (session: ${currentSessionEnergy.toFixed(3)} kWh, total: ${this.totalMeterValue.toFixed(3)} kWh)`);
-        }
-        this.lastObservedSessionEnergy = currentSessionEnergy;
         break;
 
       case ApolloDeviceObservation.TemperatureInternal5:
@@ -647,11 +641,6 @@ export class Go2Charger extends Homey.Device {
       await this.homey.flow
         .getDeviceTriggerCard('go2_car_disconnects')
         .trigger(this, tokens);
-
-      // Reset session energy tracking when car disconnects
-      // The calculated meter value will be corrected by the next signed meter update
-      this.lastObservedSessionEnergy = 0;
-      this.logToDebug(`Car disconnected - reset session energy tracking`);
     }
   }
 
@@ -714,15 +703,14 @@ export class Go2Charger extends Homey.Device {
           // Correct total meter value when receiving signed value with no car connected
           // This corrects any accumulated rounding errors or drift
           const isCarConnected = this.getCapabilityValue('alarm_generic.car_connected');
+          const currentMeterPower = this.getCapabilityValue('meter_power') || 0;
 
-          if (!isCarConnected && this.totalMeterValue !== num) {
-            this.logToDebug(`Correcting total meter value from ${this.totalMeterValue.toFixed(3)} to signed value ${num.toFixed(3)} (no car connected, signed value received)`);
-            this.totalMeterValue = num;
+          if (!isCarConnected && currentMeterPower !== num) {
+            this.logToDebug(`Correcting total meter value from ${currentMeterPower.toFixed(3)} to signed value ${num.toFixed(3)} (no car connected, signed value received)`);
             this.setCapabilityValue('meter_power', num).catch(e =>
               this.logToDebug(`Failed to update meter_power: ${e}`)
             );
           }
-          this.lastSignedMeterValue = num;
         })
         .catch((e) => {
           this.logToDebug(`Failed to get OCMF-signed value: ${e}`);
