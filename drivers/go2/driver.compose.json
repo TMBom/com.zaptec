@@ -10,7 +10,7 @@
     "meter_power.current_session",
     "meter_power",
     "meter_power.last_session",
-    "meter_power_total_this_year",
+    "meter_power.total_this_year",
     "measure_power",
     "charging_button",
     "cable_permanent_lock",
@@ -37,7 +37,7 @@
         "no": "Energibruk ladeøkt"
       }
     },
-    "meter_power_total_this_year": {
+    "meter_power.total_this_year": {
       "title": {
         "en": "Energy this year",
         "no": "Energiforbruk i år"

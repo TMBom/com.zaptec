@@ -23,6 +23,10 @@ export class Go2Charger extends Homey.Device {
    */
   async onInit() {
     this.log('Go2Charger is initializing');
+
+    // Migrate capabilities FIRST before anything else
+    await this.migrateCapabilities();
+
     const appVersion = this.homey.app.manifest.version;
     this.api = new ZaptecApi(appVersion, this.homey);
     this.renewToken();
@@ -33,7 +37,6 @@ export class Go2Charger extends Homey.Device {
     );
 
     await this.migrateEnergy();
-    await this.migrateCapabilities();
 
     this.registerCapabilityListeners();
 
@@ -74,9 +77,9 @@ export class Go2Charger extends Homey.Device {
         await this.addCapability('charging_mode');
       }
 
-      // Add total energy this year capability
-      if (!this.hasCapability('meter_power_total_this_year')) {
-        await this.addCapability('meter_power_total_this_year');
+      // Add total energy this year capability if it doesn't exist
+      if (!this.hasCapability('meter_power.total_this_year')) {
+        await this.addCapability('meter_power.total_this_year');
       }
     }
   /**
@@ -349,7 +352,7 @@ export class Go2Charger extends Homey.Device {
       .then((charges) => {
         const yearlyEnergy =
           charges?.reduce((sum, charge) => sum + charge.Energy, 0) || 0;
-        return this.setCapabilityValue('meter_power_total_this_year', yearlyEnergy);
+        return this.setCapabilityValue('meter_power.total_this_year', yearlyEnergy);
       })
       .then(() => {
         this.logToDebug(`Got yearly power history`);
