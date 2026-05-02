@@ -747,6 +747,11 @@ export class Go2Charger extends Homey.Device {
         // Poll new value to see what was actually set
         await this.pollInstallationValues();
         this.logToDebug(`Updated available current`);
+
+        // Schedule additional state polls to capture charger response to new limit
+        setTimeout(() => this.pollValues(), 7000);  // 7 seconds
+        setTimeout(() => this.pollValues(), 12000); // 12 seconds
+
         return true;
       })
       .catch((e) => {
